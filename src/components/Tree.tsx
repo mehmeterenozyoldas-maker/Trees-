@@ -139,7 +139,7 @@ export function Tree({ growth, windStrength = 1, season = 'spring' }: { growth: 
         castShadow
         receiveShadow
       >
-        <meshStandardMaterial roughness={0.4} transmission={0.2} thickness={0.1} vertexColors />
+        <meshPhysicalMaterial roughness={0.4} transmission={0.2} thickness={0.1} vertexColors />
       </instancedMesh>
 
       <Particles count={2000} treeLeaves={leaves} growth={growth} windStrength={windStrength} season={season} />
