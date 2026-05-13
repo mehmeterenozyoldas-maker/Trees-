@@ -41,31 +41,52 @@ export function Particles({ count = 2000, treeLeaves, growth, windStrength = 1, 
     particles.forEach((p, i) => {
       const rand1 = (i * 12.34) % 1.0;
       const rand2 = (i * 56.78) % 1.0;
+      
       if (season === 'spring') {
         p.color.setHSL(0.92 + rand1 * 0.08, 0.5 + rand2 * 0.3, 0.6 + rand2 * 0.3);
+        p.scale = 0.05 + rand1 * 0.05;
       } else if (season === 'summer') {
-        p.color.setHSL(0.25 + rand1 * 0.1, 0.6, 0.4 + rand2 * 0.2);
+        const baseHSL = {h: 0.28, s: 0.65, l: 0.35};
+        p.color.setHSL(baseHSL.h + rand1 * 0.05, baseHSL.s + rand2 * 0.1, baseHSL.l + rand2 * 0.1);
+        p.scale = 0.06 + rand1 * 0.06;
       } else if (season === 'autumn') {
-        p.color.setHSL(0.05 + rand1 * 0.1, 0.8, 0.4 + rand2 * 0.2);
+        const baseHSL = {h: 0.08, s: 0.85, l: 0.45};
+        p.color.setHSL(baseHSL.h + rand1 * 0.08, baseHSL.s - rand2 * 0.1, baseHSL.l + rand2 * 0.15);
+        p.scale = 0.05 + rand1 * 0.06;
       } else if (season === 'winter') {
-        p.color.setHSL(0.6, 0.1, 0.8 + rand1 * 0.2);
+        p.color.setHSL(0.6, 0.1, 0.9 + rand1 * 0.1);
+        p.scale = 0.02 + rand1 * 0.04; // Snow is smaller
       }
     });
   }, [season, particles]);
 
-  const geometry = useMemo(() => {
-    const geo = new THREE.DodecahedronGeometry(1, 0);
-    geo.scale(1, 0.2, 1);
+  const leafGeometry = useMemo(() => {
+    const geo = new THREE.SphereGeometry(1, 12, 12);
+    geo.scale(0.6, 0.02, 1.0);
+    const positions = geo.attributes.position;
+    for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i);
+        const z = positions.getZ(i);
+        // Twist the petal slightly
+        const y = positions.getY(i) + Math.sin(x * 2) * 0.2 + Math.cos(z * 2) * 0.2;
+        positions.setY(i, y);
+    }
+    geo.computeVertexNormals();
     return geo;
+  }, []);
+
+  const snowGeometry = useMemo(() => {
+    return new THREE.SphereGeometry(1, 8, 8);
   }, []);
 
   useFrame((state, delta) => {
     if (!meshRef.current || treeLeaves.length === 0) return;
 
     const time = state.clock.elapsedTime;
+    const isWinter = season === 'winter';
 
     particles.forEach((p, i) => {
-      if (growth < 0.8 && season !== 'winter') {
+      if (growth < 0.8 && !isWinter) {
         _object.scale.set(0, 0, 0);
         _object.updateMatrix();
         meshRef.current!.setMatrixAt(i, _object.matrix);
@@ -81,24 +102,34 @@ export function Particles({ count = 2000, treeLeaves, growth, windStrength = 1, 
         const noiseZ = noise3D(p.position.z * 0.1, p.position.y * 0.1 + 100, time * 0.5);
         const noiseY = noise3D(p.position.x * 0.1, p.position.z * 0.1, time * 0.5 + 200);
         
-        p.position.x += noiseX * delta * windStrength * 2.0;
-        p.position.z += noiseZ * delta * windStrength * 2.0;
-        p.position.y += noiseY * delta * windStrength * 0.5; // Slight updrafts
+        const floatStrength = isWinter ? 1.0 : 2.0; // Snow floats more steadily
+        p.position.x += noiseX * delta * windStrength * floatStrength;
+        p.position.z += noiseZ * delta * windStrength * floatStrength;
+        p.position.y += noiseY * delta * windStrength * (isWinter ? 0.2 : 0.5); // Slight updrafts
         
         // Directional wind bias
-        p.position.x += windStrength * 2.5 * delta;
+        p.position.x += windStrength * (isWinter ? 1.5 : 2.5) * delta;
 
-        if (p.position.y < 0) {
-          p.position.y = 0;
+        // Apply gravity specifically
+        if (isWinter) {
+           p.velocity.y -= 0.2 * delta; // Lighter gravity for snow
+           p.velocity.y = Math.max(p.velocity.y, -1.0); // Slower terminal velocity
+        } else {
+           p.velocity.y -= 0.5 * delta;
+           p.velocity.y = Math.max(p.velocity.y, -2.0);
+        }
+
+        if (p.position.y < 0.05) {
+          p.position.y = 0.05;
           p.state = 'ground';
           p.life = 1.0; // Reset life for ground fading
         }
       } else if (p.state === 'ground') {
-        p.life -= delta * 0.05; // Stay on ground longer
+        p.life -= delta * (isWinter ? 0.02 : 0.05); // Stay on ground longer, especially snow
         if (p.life <= 0) {
           // Respawn
-          if (season === 'winter') {
-            p.position.set((Math.random() - 0.5) * 25 - windStrength * 10, 15 + Math.random() * 10, (Math.random() - 0.5) * 25);
+          if (isWinter) {
+            p.position.set((Math.random() - 0.5) * 45 - windStrength * 15, 15 + Math.random() * 20, (Math.random() - 0.5) * 45);
           } else {
             const leaf = treeLeaves[Math.floor(Math.random() * treeLeaves.length)];
             p.position.copy(leaf.position);
@@ -124,8 +155,17 @@ export function Particles({ count = 2000, treeLeaves, growth, windStrength = 1, 
   });
 
   return (
-    <instancedMesh ref={meshRef} args={[geometry, undefined, count]} castShadow receiveShadow>
-      <meshStandardMaterial roughness={0.8} vertexColors />
+    <instancedMesh ref={meshRef} args={[undefined as any, undefined, count]} castShadow receiveShadow>
+      <primitive object={season === 'winter' ? snowGeometry : leafGeometry} attach="geometry" />
+      <meshPhysicalMaterial 
+        roughness={season === 'winter' ? 0.8 : 0.4} 
+        transmission={season === 'winter' ? 0.2 : 0.2} 
+        thickness={0.02} 
+        clearcoat={season === 'winter' ? 0.3 : 0.1}
+        side={THREE.DoubleSide}
+        vertexColors 
+      />
     </instancedMesh>
   );
 }
+

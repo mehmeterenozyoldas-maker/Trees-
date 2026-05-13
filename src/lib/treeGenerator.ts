@@ -8,19 +8,20 @@ export interface BranchData {
   dir: THREE.Vector3;
   length: number;
   radius: number;
-  startProgress: number;
-  endProgress: number;
+  timeStart: number;
+  timeEnd: number;
 }
 
 export interface LeafData {
   id: number;
   branchId: number;
   position: THREE.Vector3;
+  offset: THREE.Vector3;
   quaternion: THREE.Quaternion;
   scale: number;
   color: THREE.Color;
-  startProgress: number;
-  endProgress: number;
+  timeStart: number;
+  timeEnd: number;
 }
 
 export function generateTree() {
@@ -29,10 +30,11 @@ export function generateTree() {
   let branchIdCounter = 0;
   let leafIdCounter = 0;
 
-  const maxLevel = 7;
-  const daVinciExponent = 2.5; // Da Vinci's rule exponent (typically 2.0 - 3.0)
-  const phototropism = new THREE.Vector3(0, 1, 0); // Light source direction
-  const gravitropism = new THREE.Vector3(0, -1, 0); // Gravity direction
+  const maxLevel = 4;
+  const phototropism = new THREE.Vector3(0, 1, 0); 
+  const gravitropism = new THREE.Vector3(0, -1, 0); 
+  
+  let maxTime = 0;
 
   function growSegment(
     parentId: number,
@@ -41,35 +43,37 @@ export function generateTree() {
     dir: THREE.Vector3,
     length: number,
     radius: number,
-    startProgress: number,
+    timeStart: number,
     segmentIndex: number,
     maxSegments: number
   ) {
     const id = branchIdCounter++;
     
-    // 1. Stochastic Noise
+    const noiseScale = 0.1 + (level / maxLevel) * 0.4;
     const noiseDir = new THREE.Vector3(
-      (Math.random() - 0.5) * 0.6,
-      (Math.random() - 0.5) * 0.2,
-      (Math.random() - 0.5) * 0.6
+      (Math.random() - 0.5) * noiseScale,
+      (Math.random() - 0.5) * noiseScale * 0.5,
+      (Math.random() - 0.5) * noiseScale
     );
     
     let currentDir = dir.clone().add(noiseDir).normalize();
     
-    // 2. Phototropism (seeking light)
-    const photoBias = 0.15 * (1 - level / maxLevel); // Stronger at base
+    const photoBias = 0.15 * Math.max(0, 1 - level / maxLevel); 
     currentDir.lerp(phototropism, photoBias);
     
-    // 3. Gravitropism (heavy branches droop)
-    const gravityBias = 0.05 * (level / maxLevel) * (radius > 0.2 ? 1 : 0.2); // Stronger on thin/long branches
-    currentDir.lerp(gravitropism, gravityBias);
+    if (level > 0) {
+      const gravityBias = 0.05 * (level / maxLevel); 
+      currentDir.lerp(gravitropism, gravityBias);
+    }
     
     currentDir.normalize();
 
     const endPos = startPos.clone().add(currentDir.clone().multiplyScalar(length));
     
-    const duration = 0.06;
-    const endProgress = Math.min(startProgress + duration, 1.0);
+    // Constant elongation speed
+    const duration = length;
+    const timeEnd = timeStart + duration;
+    maxTime = Math.max(maxTime, timeEnd);
     
     branches.push({
       id,
@@ -79,80 +83,115 @@ export function generateTree() {
       dir: currentDir,
       length,
       radius,
-      startProgress,
-      endProgress
+      timeStart,
+      timeEnd
     });
 
-    if (segmentIndex < maxSegments) {
-      // Continue the same branch, tapering slightly
-      growSegment(id, level, endPos, currentDir, length * 0.95, radius * 0.9, endProgress, segmentIndex + 1, maxSegments);
-    } else if (level < maxLevel) {
-      // Split into child branches
-      const numChildren = level === 0 ? Math.floor(Math.random() * 2) + 2 : Math.floor(Math.random() * 2) + 1;
-      
-      // Da Vinci's Rule: R_parent^n = sum(R_child^n)
-      // Assuming equal children for simplicity: R_child = R_parent / (numChildren ^ (1/n))
-      const childRadius = radius / Math.pow(numChildren, 1 / daVinciExponent);
-      
-      for (let i = 0; i < numChildren; i++) {
-        const angle1 = (Math.random() - 0.5) * Math.PI * 1.8;
-        const angle2 = (Math.random() - 0.5) * Math.PI * 1.8;
-        
-        const childDir = currentDir.clone()
-          .applyAxisAngle(new THREE.Vector3(1, 0, 0), angle1)
-          .applyAxisAngle(new THREE.Vector3(0, 0, 1), angle2)
-          .normalize();
-          
-        // Bias children outwards and upwards
-        childDir.y += 0.3;
-        childDir.normalize();
+    const isTerminal = segmentIndex === maxSegments || radius < 0.05;
 
-        const childLength = length * (0.75 + Math.random() * 0.3);
-        const childSegments = Math.max(1, maxSegments - 1);
-        
-        growSegment(id, level + 1, endPos, childDir, childLength, childRadius, endProgress, 0, childSegments);
-      }
-    } else {
-      // Generate leaves at the end of the terminal branches (phyllotaxis approximation)
-      const numLeaves = Math.floor(Math.random() * 15) + 10;
-      const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~137.5 degrees
+    if (!isTerminal) {
+       growSegment(id, level, endPos, currentDir, length * 0.95, radius * 0.85, timeEnd, segmentIndex + 1, maxSegments);
+    }
+
+    if (level < maxLevel) {
+        let numLaterals = 0;
+        if (isTerminal) {
+            numLaterals = Math.floor(Math.random() * 2) + 2; 
+        } else {
+            if (segmentIndex > 0) {
+                const branchChance = 0.8 - (level * 0.15); 
+                if (Math.random() < branchChance) {
+                    numLaterals = 1 + (Math.random() < 0.25 ? 1 : 0);
+                }
+            }
+        }
+
+        const childRadiusScale = isTerminal ? 0.7 : 0.5;
+
+        for (let i = 0; i < numLaterals; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const spread = isTerminal ? (0.3 + Math.random() * 0.3) : (0.6 + Math.random() * 0.4);
+            
+            const perp = new THREE.Vector3(1, 0, 0).cross(currentDir).normalize();
+            if (perp.length() < 0.1) perp.set(0, 0, 1).cross(currentDir).normalize();
+            perp.applyAxisAngle(currentDir, angle); 
+            
+            const childDir = currentDir.clone().applyAxisAngle(perp, spread).normalize();
+            
+            childDir.y += 0.2;
+            childDir.normalize();
+
+            const childLength = length * (isTerminal ? 0.85 : 0.7) * (0.8 + Math.random() * 0.4);
+            const childRadius = radius * childRadiusScale;
+            // Shorter sub-branches
+            const childMaxSegments = Math.max(1, maxSegments - 1);
+            
+            const childTimeStart = timeEnd + (isTerminal ? 0 : Math.random() * duration * 0.5);
+
+            growSegment(id, level + 1, endPos, childDir, childLength, childRadius, childTimeStart, 0, childMaxSegments);
+        }
+    }
+
+    if (level >= maxLevel - 2) {
+      const numLeaves = isTerminal ? (Math.floor(Math.random() * 8) + 4) : (Math.floor(Math.random() * 3) + 1);
       
       for (let i = 0; i < numLeaves; i++) {
-        // Distribute leaves spherically but biased by golden angle
-        const theta = i * goldenAngle;
-        const phi = Math.acos(1 - 2 * (i + 0.5) / numLeaves);
+        const offsetDist = Math.random() * 1.5;
+        const angle1 = Math.random() * Math.PI * 2;
+        const angle2 = (Math.random() - 0.5) * Math.PI;
         
-        const offset = new THREE.Vector3(
-          Math.sin(phi) * Math.cos(theta),
-          Math.sin(phi) * Math.sin(theta),
-          Math.cos(phi)
-        ).multiplyScalar(1.5 + Math.random() * 1.5);
+        const offsetDir = new THREE.Vector3(
+           Math.cos(angle1) * Math.cos(angle2),
+           Math.sin(angle2),
+           Math.sin(angle1) * Math.cos(angle2)
+        ).normalize();
         
+        offsetDir.add(currentDir).normalize();
+        offsetDir.y += 0.5;
+        offsetDir.normalize();
+
+        const offset = offsetDir.multiplyScalar(offsetDist);
         const leafPos = endPos.clone().add(offset);
-        const leafQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), offset.clone().normalize());
         
-        // Warm earthy pinks palette with higher variance
-        const hue = 0.90 + Math.random() * 0.12; // Pink to deep red
-        const sat = 0.5 + Math.random() * 0.4;
-        const lit = 0.5 + Math.random() * 0.4;
+        const upVec = new THREE.Vector3(0, 1, 0);
+        const leafQuat = new THREE.Quaternion().setFromUnitVectors(upVec, offsetDir.clone().lerp(upVec, 0.5).normalize());
+        
+        const hue = 0.28 + Math.random() * 0.05; 
+        const sat = 0.6 + Math.random() * 0.2;
+        const lit = 0.3 + Math.random() * 0.2;
         const color = new THREE.Color().setHSL(hue, sat, lit);
+
+        const leafTimeStart = timeEnd + Math.random() * duration * 2.0; 
+        const leafTimeEnd = leafTimeStart + duration * 1.5;
+        maxTime = Math.max(maxTime, leafTimeEnd);
 
         leaves.push({
           id: leafIdCounter++,
           branchId: id,
           position: leafPos,
+          offset: offset,
           quaternion: leafQuat,
-          scale: 0.15 + Math.random() * 0.35,
+          scale: 0.15 + Math.random() * 0.3,
           color,
-          startProgress: endProgress,
-          endProgress: Math.min(endProgress + 0.2, 1.0)
+          timeStart: leafTimeStart,
+          timeEnd: leafTimeEnd
         });
       }
     }
   }
 
-  // Start the trunk
-  growSegment(-1, 0, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), 1.8, 0.85, 0, 0, 5);
+  // Trunk
+  growSegment(-1, 0, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), 2.5, 1.2, 0, 0, 6);
+
+  // Normalize
+  for (const b of branches) {
+    b.timeStart /= maxTime;
+    b.timeEnd /= maxTime;
+  }
+  for (const l of leaves) {
+    l.timeStart /= maxTime;
+    l.timeEnd /= maxTime;
+  }
 
   return { branches, leaves };
 }
