@@ -120,12 +120,12 @@ export function Particles({ count = 2000, treeLeaves, growth, windStrength = 1, 
         }
 
         if (p.position.y < 0.05) {
-          p.position.y = 0.05;
+          p.position.y = isWinter ? 0.02 + Math.random() * 0.08 : 0.05;
           p.state = 'ground';
           p.life = 1.0; // Reset life for ground fading
         }
       } else if (p.state === 'ground') {
-        p.life -= delta * (isWinter ? 0.02 : 0.05); // Stay on ground longer, especially snow
+        p.life -= delta * (isWinter ? 0.005 : 0.05); // Snow stays much longer to accumulate
         if (p.life <= 0) {
           // Respawn
           if (isWinter) {
@@ -136,13 +136,23 @@ export function Particles({ count = 2000, treeLeaves, growth, windStrength = 1, 
           }
           p.state = 'falling';
           p.life = 1.0;
+          p.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
         }
       }
 
       _object.position.copy(p.position);
       _object.rotation.set(p.rotation.x, p.rotation.y, p.rotation.z);
       
-      const scale = p.state === 'ground' ? p.scale * Math.max(0, p.life) : p.scale;
+      let scale = p.scale;
+      if (p.state === 'ground') {
+        if (isWinter) {
+          // Solid scale until the very end to show accumulation
+          scale = p.scale * Math.min(1, p.life * 5);
+        } else {
+          scale = p.scale * Math.max(0, p.life);
+        }
+      }
+      
       _object.scale.set(scale, scale, scale);
       _object.updateMatrix();
       

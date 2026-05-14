@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, ContactShadows, Sky } from '@react-three/drei';
 import { EffectComposer, Bloom, DepthOfField, Noise, Vignette, N8AO, SMAA, ToneMapping } from '@react-three/postprocessing';
 import { Tree } from './components/Tree';
+import { Terrain } from './components/Terrain';
 import { Wind, Leaf, Snowflake, Sun, Clock } from 'lucide-react';
 import { BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
@@ -20,6 +21,21 @@ export default function App() {
 
   const lightIntensity = Math.max(0.0, Math.sin(sunAngle)) * 3.5;
   const ambientIntensity = Math.max(0.1, Math.sin(sunAngle) * 0.6 + 0.1);
+
+  const fogColor = new THREE.Color();
+  const dayColor = new THREE.Color('#8fb0d3');
+  const sunsetColor = new THREE.Color('#d38a7b');
+  const nightColor = new THREE.Color('#050810');
+  
+  if (sunY > 10) {
+    fogColor.copy(dayColor);
+  } else if (sunY > 0) {
+    fogColor.copy(sunsetColor).lerp(dayColor, sunY / 10);
+  } else if (sunY > -10) {
+    fogColor.copy(nightColor).lerp(sunsetColor, (sunY + 10) / 10);
+  } else {
+    fogColor.copy(nightColor);
+  }
 
   // Auto-grow on mount
   useEffect(() => {
@@ -79,6 +95,7 @@ export default function App() {
         <directionalLight position={[-10, 10, -10]} intensity={1.0} color="#6080ff" />
         
         <Tree growth={growth} windStrength={windStrength} season={season} />
+        <Terrain season={season} />
         
         <ContactShadows 
           resolution={2048} 
@@ -86,8 +103,10 @@ export default function App() {
           blur={2.5} 
           opacity={0.8} 
           far={10} 
-          color="#000000"
+          color="#000200"
+          position={[0, 0.05, 0]}
         />
+        <fog attach="fog" args={[fogColor, 20, 70]} />
         
         <OrbitControls 
           enablePan={false} 
